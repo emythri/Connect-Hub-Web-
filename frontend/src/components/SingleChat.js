@@ -1,30 +1,29 @@
 import { FormControl } from "@chakra-ui/form-control";
 import { Input } from "@chakra-ui/input";
 import { Box, Text } from "@chakra-ui/layout";
-import { IconButton, Spinner, useToast, Button } from "@chakra-ui/react";
-import { ArrowBackIcon } from "@chakra-ui/icons";
-import { useEffect, useState, useRef } from "react";
-import Lottie from "react-lottie";
-import axios from "axios";
-import io from "socket.io-client";
 import "./styles.css";
-
-import ScrollableChat from "./ScrollableChat";
+import { IconButton, Spinner, useToast, Button } from "@chakra-ui/react";
+import { getSender, getSenderFull } from "../config/ChatLogics";
+import { useEffect, useState, useRef } from "react";
+import axios from "axios";
+import { ArrowBackIcon } from "@chakra-ui/icons";
 import ProfileModal from "./miscellaneous/ProfileModal";
+import ScrollableChat from "./ScrollableChat";
+import Lottie from "react-lottie";
+import animationData from "../animations/typing.json";
+import io from "socket.io-client";
 import UpdateGroupChatModal from "./miscellaneous/UpdateGroupChatModal";
 import { ChatState } from "../Context/ChatProvider";
-import { getSender, getSenderFull } from "../config/ChatLogics";
 
-import animationData from "../animations/typing.json";
-
-// Emoji Picker
+// Emoji picker
 import EmojiPicker from "emoji-picker-react";
 import { BsEmojiSmile } from "react-icons/bs";
 
 const ENDPOINT = "http://localhost:5000";
-let socket;
+var socket, selectedChatCompare;
 
 const SingleChat = ({ fetchAgain, setFetchAgain }) => {
+  const selectedChatRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [newMessage, setNewMessage] = useState("");
@@ -32,11 +31,9 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
   const [typing, setTyping] = useState(false);
   const [istyping, setIsTyping] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-
-  const { selectedChat, setSelectedChat, user, notification, setNotification } =
-    ChatState();
   const toast = useToast();
-  const selectedChatRef = useRef(selectedChat);
+
+  const { selectedChat, setSelectedChat, user, notification, setNotification } = ChatState();
 
   const defaultOptions = {
     loop: true,
@@ -57,22 +54,13 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
 
   useEffect(() => {
     selectedChatRef.current = selectedChat;
-  }, [selectedChat]);
-
-  useEffect(() => {
+    selectedChatCompare = selectedChat;
     fetchMessages();
-
-    if (selectedChat) {
-      socket.emit("join chat", selectedChat._id);
-    }
   }, [selectedChat]);
 
   useEffect(() => {
-    const messageHandler = (newMessageRecieved) => {
-      if (
-        !selectedChatRef.current ||
-        selectedChatRef.current._id !== newMessageRecieved.chat._id
-      ) {
+    socket.on("message recieved", (newMessageRecieved) => {
+      if (!selectedChatCompare || selectedChatCompare._id !== newMessageRecieved.chat._id) {
         if (!notification.includes(newMessageRecieved)) {
           setNotification((prev) => [newMessageRecieved, ...prev]);
           setFetchAgain((prev) => !prev);
@@ -80,29 +68,25 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       } else {
         setMessages((prevMessages) => [...prevMessages, newMessageRecieved]);
       }
-    };
-
-    socket.on("message recieved", messageHandler);
-
-    return () => {
-      socket.off("message recieved", messageHandler);
-    };
-  }, [notification, setFetchAgain]);
+    });
+  });
 
   const fetchMessages = async () => {
     if (!selectedChat) return;
 
     try {
-      setLoading(true);
       const config = {
         headers: {
           Authorization: `Bearer ${user.token}`,
         },
       };
 
+      setLoading(true);
       const { data } = await axios.get(`/api/message/${selectedChat._id}`, config);
       setMessages(data);
       setLoading(false);
+
+      socket.emit("join chat", selectedChat._id);
     } catch (error) {
       toast({
         title: "Error Occurred!",
@@ -115,10 +99,9 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     }
   };
 
-  const sendMessage = async (e) => {
-    if (e.key === "Enter" && newMessage.trim()) {
+  const sendMessage = async (event) => {
+    if (event.key === "Enter" && newMessage) {
       socket.emit("stop typing", selectedChat._id);
-
       try {
         const config = {
           headers: {
@@ -126,19 +109,14 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
             Authorization: `Bearer ${user.token}`,
           },
         };
-
+        setNewMessage("");
         const { data } = await axios.post(
           "/api/message",
-          {
-            content: newMessage,
-            chatId: selectedChat._id,
-          },
+          { content: newMessage, chatId: selectedChat._id },
           config
         );
-
-        setNewMessage("");
         socket.emit("new message", data);
-        setMessages((prev) => [...prev, data]);
+        setMessages([...messages, data]);
       } catch (error) {
         toast({
           title: "Error Occurred!",
@@ -162,13 +140,12 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       socket.emit("typing", selectedChat._id);
     }
 
-    const lastTypingTime = new Date().getTime();
+    let lastTypingTime = new Date().getTime();
     const timerLength = 3000;
 
     setTimeout(() => {
       const timeNow = new Date().getTime();
       const timeDiff = timeNow - lastTypingTime;
-
       if (timeDiff >= timerLength && typing) {
         socket.emit("stop typing", selectedChat._id);
         setTyping(false);
@@ -195,23 +172,23 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
               icon={<ArrowBackIcon />}
               onClick={() => setSelectedChat("")}
             />
-            {!selectedChat.isGroupChat ? (
-              <>
-                {getSender(user, selectedChat.users)}
-                <ProfileModal user={getSenderFull(user, selectedChat.users)} />
-              </>
-            ) : (
-              <>
-                {selectedChat.chatName.toUpperCase()}
-                <UpdateGroupChatModal
-                  fetchMessages={fetchMessages}
-                  fetchAgain={fetchAgain}
-                  setFetchAgain={setFetchAgain}
-                />
-              </>
-            )}
+            {messages &&
+              (!selectedChat.isGroupChat ? (
+                <>
+                  {getSender(user, selectedChat.users)}
+                  <ProfileModal user={getSenderFull(user, selectedChat.users)} />
+                </>
+              ) : (
+                <>
+                  {selectedChat.chatName.toUpperCase()}
+                  <UpdateGroupChatModal
+                    fetchMessages={fetchMessages}
+                    fetchAgain={fetchAgain}
+                    setFetchAgain={setFetchAgain}
+                  />
+                </>
+              ))}
           </Text>
-
           <Box
             d="flex"
             flexDir="column"
@@ -232,15 +209,11 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
             )}
 
             <FormControl onKeyDown={sendMessage} isRequired mt={3}>
-              {istyping && (
+              {istyping ? (
                 <div>
-                  <Lottie
-                    options={defaultOptions}
-                    width={70}
-                    style={{ marginBottom: 15, marginLeft: 0 }}
-                  />
+                  <Lottie options={defaultOptions} width={70} style={{ marginBottom: 15, marginLeft: 0 }} />
                 </div>
-              )}
+              ) : null}
 
               <Box display="flex" alignItems="center" gap={2}>
                 <Button
@@ -254,7 +227,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                 <Input
                   variant="filled"
                   bg="#E0E0E0"
-                  placeholder="Enter a message..."
+                  placeholder="Enter a message.."
                   value={newMessage}
                   onChange={typingHandler}
                 />
@@ -284,6 +257,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
 };
 
 export default SingleChat;
+
 
 
 // import { FormControl } from "@chakra-ui/form-control";
