@@ -79,6 +79,8 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
   }, [selectedChat]);
 
   useEffect(() => {
+    if (!socket) return;
+
     const messageHandler = (newMessageRecieved) => {
       if (
         !selectedChatRef.current ||
@@ -98,7 +100,11 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     return () => {
       socket.off("message recieved", messageHandler);
     };
-  }, [notification, fetchAgain, setFetchAgain]);
+  }, []);
+
+  useEffect(() => {
+    fetchMessages();
+  }, [fetchAgain]);
 
   const typingHandler = (e) => {
     setNewMessage(e.target.value);
@@ -119,6 +125,40 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
         setTyping(false);
       }
     }, timerLength);
+  };
+
+  const sendMessage = async (event) => {
+    if (event.key === "Enter" && newMessage) {
+      socket.emit("stop typing", selectedChat._id);
+      try {
+        const config = {
+          headers: {
+            "Content-type": "application/json",
+            Authorization: `Bearer ${user.token}`,
+          },
+        };
+        setNewMessage("");
+        const { data } = await axios.post(
+          "/api/message",
+          {
+            content: newMessage,
+            chatId: selectedChat,
+          },
+          config
+        );
+        socket.emit("new message", data);
+        setMessages([...messages, data]);
+      } catch (error) {
+        toast({
+          title: "Error Occured!",
+          description: "Failed to send the Message",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+          position: "bottom",
+        });
+      }
+    }
   };
 
   return (
