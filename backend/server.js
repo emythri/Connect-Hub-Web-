@@ -11,13 +11,12 @@ dotenv.config();
 connectDB();
 const app = express();
 
-app.use(express.json()); // to accept json data
+app.use(express.json());
 
 app.use("/api/user", userRoutes);
 
 app.use("/api/chat", chatRoutes);
-app.use("/api/message/:chatId", messageRoutes);
-
+app.use("/api/message", messageRoutes);
 const __dirname1 = path.resolve();
 
 if (process.env.NODE_ENV === "production") {
