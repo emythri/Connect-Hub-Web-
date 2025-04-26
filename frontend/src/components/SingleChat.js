@@ -14,13 +14,11 @@ import animationData from "../animations/typing.json";
 import io from "socket.io-client";
 import UpdateGroupChatModal from "./miscellaneous/UpdateGroupChatModal";
 import { ChatState } from "../Context/ChatProvider";
-
-// Emoji picker
 import EmojiPicker from "emoji-picker-react";
 import { BsEmojiSmile } from "react-icons/bs";
 
-const ENDPOINT = "http://localhost:5000";
-var socket, selectedChatCompare;
+const ENDPOINT = "http://localhost:5000"; // your backend URL
+var socket;
 
 const SingleChat = ({ fetchAgain, setFetchAgain }) => {
   const selectedChatRef = useRef(null);
@@ -44,6 +42,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     },
   };
 
+  // IMPORTANT: Setup socket connection
   useEffect(() => {
     socket = io(ENDPOINT);
     socket.emit("setup", user);
@@ -54,22 +53,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
 
   useEffect(() => {
     selectedChatRef.current = selectedChat;
-    selectedChatCompare = selectedChat;
-    fetchMessages();
   }, [selectedChat]);
-
-  useEffect(() => {
-    socket.on("message recieved", (newMessageRecieved) => {
-      if (!selectedChatCompare || selectedChatCompare._id !== newMessageRecieved.chat._id) {
-        if (!notification.includes(newMessageRecieved)) {
-          setNotification((prev) => [newMessageRecieved, ...prev]);
-          setFetchAgain((prev) => !prev);
-        }
-      } else {
-        setMessages((prevMessages) => [...prevMessages, newMessageRecieved]);
-      }
-    });
-  });
 
   const fetchMessages = async () => {
     if (!selectedChat) return;
@@ -90,13 +74,59 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     } catch (error) {
       toast({
         title: "Error Occurred!",
-        description: "Failed to Load the Messages",
+        description: "Failed to load the Messages",
         status: "error",
         duration: 5000,
         isClosable: true,
         position: "bottom",
       });
     }
+  };
+
+  useEffect(() => {
+    fetchMessages();
+  }, [selectedChat]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const messageHandler = (newMessageReceived) => {
+      if (!selectedChatRef.current || selectedChatRef.current._id !== newMessageReceived.chat._id) {
+        if (!notification.includes(newMessageReceived)) {
+          setNotification((prevNotifications) => [newMessageReceived, ...prevNotifications]);
+          setFetchAgain((prev) => !prev);
+        }
+      } else {
+        setMessages((prevMessages) => [...prevMessages, newMessageReceived]);
+      }
+    };
+
+    socket.on("message received", messageHandler);
+
+    return () => {
+      socket.off("message received", messageHandler);
+    };
+  }, []);
+
+  const typingHandler = (e) => {
+    setNewMessage(e.target.value);
+
+    if (!socketConnected) return;
+
+    if (!typing) {
+      setTyping(true);
+      socket.emit("typing", selectedChat._id);
+    }
+    let lastTypingTime = new Date().getTime();
+    var timerLength = 3000;
+    setTimeout(() => {
+      var timeNow = new Date().getTime();
+      var timeDiff = timeNow - lastTypingTime;
+      if (timeDiff >= timerLength && typing) {
+        socket.emit("stop typing", selectedChat._id);
+        setTyping(false);
+      }
+    }, timerLength);
   };
 
   const sendMessage = async (event) => {
@@ -112,7 +142,10 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
         setNewMessage("");
         const { data } = await axios.post(
           "/api/message",
-          { content: newMessage, chatId: selectedChat._id },
+          {
+            content: newMessage,
+            chatId: selectedChat._id,
+          },
           config
         );
         socket.emit("new message", data);
@@ -130,29 +163,6 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     }
   };
 
-  const typingHandler = (e) => {
-    setNewMessage(e.target.value);
-
-    if (!socketConnected) return;
-
-    if (!typing) {
-      setTyping(true);
-      socket.emit("typing", selectedChat._id);
-    }
-
-    let lastTypingTime = new Date().getTime();
-    const timerLength = 3000;
-
-    setTimeout(() => {
-      const timeNow = new Date().getTime();
-      const timeDiff = timeNow - lastTypingTime;
-      if (timeDiff >= timerLength && typing) {
-        socket.emit("stop typing", selectedChat._id);
-        setTyping(false);
-      }
-    }, timerLength);
-  };
-
   return (
     <>
       {selectedChat ? (
@@ -164,7 +174,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
             w="100%"
             fontFamily="Work sans"
             d="flex"
-            justifyContent={{ base: "space-between" }}
+            justifyContent="space-between"
             alignItems="center"
           >
             <IconButton
@@ -172,8 +182,8 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
               icon={<ArrowBackIcon />}
               onClick={() => setSelectedChat("")}
             />
-            {messages &&
-              (!selectedChat.isGroupChat ? (
+            {messages && (
+              !selectedChat.isGroupChat ? (
                 <>
                   {getSender(user, selectedChat.users)}
                   <ProfileModal user={getSenderFull(user, selectedChat.users)} />
@@ -187,8 +197,10 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                     setFetchAgain={setFetchAgain}
                   />
                 </>
-              ))}
+              )
+            )}
           </Text>
+
           <Box
             d="flex"
             flexDir="column"
@@ -209,11 +221,15 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
             )}
 
             <FormControl onKeyDown={sendMessage} isRequired mt={3}>
-              {istyping ? (
+              {istyping && (
                 <div>
-                  <Lottie options={defaultOptions} width={70} style={{ marginBottom: 15, marginLeft: 0 }} />
+                  <Lottie
+                    options={defaultOptions}
+                    width={70}
+                    style={{ marginBottom: 15, marginLeft: 0 }}
+                  />
                 </div>
-              ) : null}
+              )}
 
               <Box display="flex" alignItems="center" gap={2}>
                 <Button
@@ -227,7 +243,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                 <Input
                   variant="filled"
                   bg="#E0E0E0"
-                  placeholder="Enter a message.."
+                  placeholder="Enter a message..."
                   value={newMessage}
                   onChange={typingHandler}
                 />
@@ -257,6 +273,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
 };
 
 export default SingleChat;
+
 
 
 
