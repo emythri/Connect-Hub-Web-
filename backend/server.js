@@ -16,7 +16,7 @@ app.use(express.json()); // to accept json data
 app.use("/api/user", userRoutes);
 
 app.use("/api/chat", chatRoutes);
-app.use("/api/message", messageRoutes);
+app.use("/api/message/:chatId", messageRoutes);
 
 const __dirname1 = path.resolve();
 
