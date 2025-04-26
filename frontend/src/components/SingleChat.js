@@ -59,7 +59,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       setLoading(true);
       const { data } = await axios.get(`/api/message/${selectedChat._id}`, config);
       setMessages(data);
-      setLoading(false);
+      setLoading(true);
 
       socket.emit("join chat", selectedChat._id);
     } catch (error) {
